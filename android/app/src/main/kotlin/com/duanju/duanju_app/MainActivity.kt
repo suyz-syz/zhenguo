@@ -138,6 +138,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MediaPlaybackService.attachEngine(flutterEngine)
         deviceChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "duanju/device")
             .also { channel ->
                 channel.setMethodCallHandler { call, result ->
@@ -256,6 +257,24 @@ class MainActivity : FlutterActivity() {
                                 result.error("invalid_url", "播放地址为空", null)
                             }
                         }
+                        "startBackgroundPlayback" -> {
+                            MediaPlaybackService.start(this)
+                            result.success(true)
+                        }
+                        "stopBackgroundPlayback" -> {
+                            MediaPlaybackService.stop(this)
+                            result.success(true)
+                        }
+                        "updateBackgroundPlayback" -> {
+                            MediaPlaybackService.updateState(
+                                this,
+                                call.argument<String>("title") ?: "短剧",
+                                call.argument<Boolean>("playing") ?: true,
+                                (call.argument<Number>("position")?.toLong()) ?: 0L,
+                                (call.argument<Number>("duration")?.toLong()) ?: 0L,
+                            )
+                            result.success(true)
+                        }
                         else -> result.notImplemented()
                     }
                 }
@@ -315,6 +334,7 @@ class MainActivity : FlutterActivity() {
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         deviceChannel?.setMethodCallHandler(null)
         deviceChannel = null
+        MediaPlaybackService.attachEngine(null)
         super.cleanUpFlutterEngine(flutterEngine)
     }
 }

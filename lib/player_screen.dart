@@ -131,6 +131,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   double _resumePosition = 0;
   bool _rotating = false;
   bool _television = false;
+  bool _backgroundPlayback = true;
+  bool _backgroundPlaybackActive = false;
   TelevisionDecoder _televisionDecoder = TelevisionDecoder.optimized;
   bool get _televisionDecoderApplies => Platform.isAndroid && _television;
   AppOrientationController? _orientationController;
@@ -152,6 +154,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     autoAdvance: _autoAdvance,
     danmaku: _danmakuEnabled,
     preload: _preloadEnabled,
+    backgroundPlayback: _backgroundPlayback,
     enhancement: _enhancement.preferences,
     televisionDecoder: _televisionDecoder,
   );
@@ -179,6 +182,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     _danmakuEnabled = preferences.danmaku;
     _preloadEnabled = true;
     _televisionDecoder = preferences.televisionDecoder;
+    _backgroundPlayback = preferences.backgroundPlayback;
     _loader = PlaybackLoader(widget.repository);
     _preloader = PlaybackPreloader(widget.repository);
     _danmaku = DanmakuController(widget.repository)
@@ -325,7 +329,10 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
     _saveTimer = Timer.periodic(
       const Duration(seconds: 5),
-      (_) => _saveProgress(),
+      (_) {
+        _saveProgress();
+        if (_backgroundPlaybackActive) _refreshBackgroundNotification();
+      },
     );
     _healthTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!_closed &&
@@ -395,10 +402,40 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (defaultTargetPlatform != TargetPlatform.android) return;
     _pictureInPictureHandlerInstalled = true;
     AppDevice.channel.setMethodCallHandler((call) async {
-      if (call.method == 'pictureInPictureChanged') {
-        final arguments = call.arguments;
-        final active = arguments is Map && arguments['active'] == true;
-        _setPictureInPictureStatus(active: active, delayHiddenPause: !active);
+      switch (call.method) {
+        case 'pictureInPictureChanged':
+          final arguments = call.arguments;
+          final active = arguments is Map && arguments['active'] == true;
+          _setPictureInPictureStatus(active: active, delayHiddenPause: !active);
+          break;
+        case 'mediaControlPlay':
+          if (!_closed && _backgroundPlayback && !_player.state.playing) {
+            _playIntent = true;
+            _health.reset();
+            unawaited(_player.play());
+            _syncDanmaku();
+            if (!_foreground) _startBackgroundPlayback();
+          }
+          break;
+        case 'mediaControlPause':
+          if (!_closed && _player.state.playing) {
+            _playIntent = false;
+            _interactions.cancel();
+            unawaited(_player.pause());
+            unawaited(_saveProgress(flush: true));
+            _stopBackgroundPlayback();
+          }
+          break;
+        case 'mediaControlNext':
+          if (!_closed && _index + 1 < widget.detail.episodes.length) {
+            unawaited(_play(_index + 1));
+          }
+          break;
+        case 'mediaControlPrevious':
+          if (!_closed && _index > 0) {
+            unawaited(_play(_index - 1));
+          }
+          break;
       }
     });
     unawaited(_refreshPictureInPictureStatus());
@@ -472,24 +509,74 @@ class _PlayerScreenState extends State<PlayerScreen>
               AppLifecycleState.inactive == _lifecycleState)
         : _lifecycleState == AppLifecycleState.resumed;
     final visible = treatAsVisible || _pictureInPictureVisible;
+    final wasPlaying = _player.state.playing || _playIntent;
     _foreground = visible;
     _enhancement.setForeground(_foreground);
     _syncDanmaku();
     _syncPreload();
     _health.reset();
     if (!visible) _interactions.cancel();
-    if (pauseWhenHidden &&
+    final backgroundHidden =
+        pauseWhenHidden &&
         !visible &&
         (_lifecycleState == AppLifecycleState.paused ||
             (!Platform.isWindows &&
                 _lifecycleState == AppLifecycleState.inactive) ||
-            _lifecycleState == AppLifecycleState.hidden)) {
+            _lifecycleState == AppLifecycleState.hidden);
+    if (backgroundHidden &&
+        _backgroundPlayback &&
+        wasPlaying &&
+        !_pictureInPictureVisible) {
+      // 锁屏/后台继续播放：保持音频，拉起媒体前台服务与锁屏 MediaSession。
+      _startBackgroundPlayback();
+    } else if (backgroundHidden) {
       _playIntent = false;
       unawaited(_player.pause());
       unawaited(_saveProgress(flush: true));
+      _stopBackgroundPlayback();
     }
-    if (visible && _pendingError) {
-      _queueRecovery(reason: 'foreground_pending_error');
+    if (visible) {
+      _stopBackgroundPlayback();
+      if (_pendingError) {
+        _queueRecovery(reason: 'foreground_pending_error');
+      }
+    }
+  }
+
+  Future<void> _startBackgroundPlayback() async {
+    if (!Platform.isAndroid || _closed) return;
+    try {
+      await AppDevice.channel.invokeMethod('startBackgroundPlayback');
+      _backgroundPlaybackActive = true;
+      _refreshBackgroundNotification();
+    } on PlatformException {
+    } on MissingPluginException {
+    }
+  }
+
+  Future<void> _stopBackgroundPlayback() async {
+    if (!Platform.isAndroid) return;
+    _backgroundPlaybackActive = false;
+    try {
+      await AppDevice.channel.invokeMethod('stopBackgroundPlayback');
+    } on PlatformException {
+    } on MissingPluginException {
+    }
+  }
+
+  Future<void> _refreshBackgroundNotification() async {
+    if (!Platform.isAndroid || _closed) return;
+    final title =
+        '${widget.detail.drama.title} · 第 ${widget.detail.episodes[_index].number} 集';
+    try {
+      await AppDevice.channel.invokeMethod('updateBackgroundPlayback', {
+        'title': title,
+        'playing': _player.state.playing,
+        'position': _player.state.position.inMilliseconds,
+        'duration': _player.state.duration.inMilliseconds,
+      });
+    } on PlatformException {
+    } on MissingPluginException {
     }
   }
 
@@ -1296,7 +1383,11 @@ class _PlayerScreenState extends State<PlayerScreen>
       _danmakuEnabled = nextPreferences.danmaku;
       _preloadEnabled = true;
       _televisionDecoder = nextPreferences.televisionDecoder;
+      _backgroundPlayback = nextPreferences.backgroundPlayback;
     });
+    if (!_backgroundPlayback && _backgroundPlaybackActive) {
+      _stopBackgroundPlayback();
+    }
     _danmaku.setEnabled(_danmakuEnabled);
     _syncDanmaku();
     if (qualityChanged) _preloader.clear();
@@ -1606,6 +1697,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }
+    unawaited(_stopBackgroundPlayback());
     unawaited(_releasePlayback(_session, 'screen_dispose'));
     unawaited(_loader.close().catchError((Object _) {}));
     unawaited(

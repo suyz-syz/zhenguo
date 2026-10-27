@@ -11,6 +11,7 @@ class PlaybackPreferences {
     this.autoAdvance = true,
     this.danmaku = true,
     this.preload = true,
+    this.backgroundPlayback = true,
     this.enhancement = const VideoEnhancementPreferences(),
     this.televisionDecoder = TelevisionDecoder.optimized,
   });
@@ -20,6 +21,7 @@ class PlaybackPreferences {
   final bool autoAdvance;
   final bool danmaku;
   final bool preload;
+  final bool backgroundPlayback;
   final VideoEnhancementPreferences enhancement;
   final TelevisionDecoder televisionDecoder;
 
@@ -29,6 +31,7 @@ class PlaybackPreferences {
     bool? autoAdvance,
     bool? danmaku,
     bool? preload,
+    bool? backgroundPlayback,
     VideoEnhancementPreferences? enhancement,
     TelevisionDecoder? televisionDecoder,
   }) => PlaybackPreferences(
@@ -37,6 +40,7 @@ class PlaybackPreferences {
     autoAdvance: autoAdvance ?? this.autoAdvance,
     danmaku: danmaku ?? this.danmaku,
     preload: preload ?? this.preload,
+    backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
     enhancement: enhancement ?? this.enhancement,
     televisionDecoder: televisionDecoder ?? this.televisionDecoder,
   );
@@ -47,6 +51,7 @@ class PlaybackPreferences {
     'autoAdvance': autoAdvance,
     'danmaku': danmaku,
     'preload': preload,
+    'backgroundPlayback': backgroundPlayback,
     'enhancement': enhancement.toJson(),
     'televisionDecoder': televisionDecoder.name,
   };
@@ -57,6 +62,7 @@ class PlaybackPreferences {
     final autoAdvance = value['autoAdvance'] as bool? ?? true;
     final danmaku = value['danmaku'] as bool? ?? true;
     final preload = value['preload'] as bool? ?? true;
+    final backgroundPlayback = value['backgroundPlayback'] as bool? ?? true;
     if (!playbackSpeeds.contains(speed) || quality < 0 || quality > 4320) {
       throw const FormatException('播放偏好无效');
     }
@@ -66,6 +72,7 @@ class PlaybackPreferences {
       autoAdvance: autoAdvance,
       danmaku: danmaku,
       preload: preload,
+      backgroundPlayback: backgroundPlayback,
       enhancement: VideoEnhancementPreferences.fromJson(value['enhancement']),
       televisionDecoder:
           TelevisionDecoder.values.asNameMap()[value['televisionDecoder']] ??

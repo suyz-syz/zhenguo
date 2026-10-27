@@ -294,6 +294,21 @@ class _PlayerMenuState extends State<PlayerMenu> {
                   ),
           ),
           const SizedBox(height: 8),
+          SwitchListTile.adaptive(
+            key: const ValueKey('player-background-playback'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('锁屏后台播放'),
+            subtitle: const Text('锁屏或切到后台时继续播放音频，并在锁屏显示控制条'),
+            value: preferences.backgroundPlayback,
+            onChanged: _busy
+                ? null
+                : (value) => _run(
+                    () => widget.onPreferences(
+                      preferences.copyWith(backgroundPlayback: value),
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 8),
           OutlinedButton.icon(
             key: const ValueKey('player-favorite'),
             onPressed: _busy ? null : () => _run(widget.onFavorite),
