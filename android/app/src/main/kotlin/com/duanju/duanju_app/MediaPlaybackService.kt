@@ -239,7 +239,7 @@ class MediaPlaybackService : Service() {
             .setContentIntent(contentIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setStyle(
-                Notification.MediaStyle().apply {
+                NotificationCompat.MediaStyle().apply {
                     mediaSession?.sessionToken?.let { setMediaSession(it) }
                     setShowActionsInCompactView(0, 1, 2)
                 }
